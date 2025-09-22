@@ -1,15 +1,12 @@
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
-import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
 import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.List;
 import javax.imageio.ImageIO;
@@ -104,7 +101,7 @@ public class DigitalWatermarkingGUI extends JFrame {
         panel.add(scrollPane, BorderLayout.CENTER);
 
         JButton clearLogButton = new JButton("Clear Log");
-        clearLogButton.addActionListener(e -> logArea.setText(""));
+        clearLogButton.addActionListener(_ -> logArea.setText(""));
         panel.add(clearLogButton, BorderLayout.SOUTH);
 
         return panel;
@@ -224,7 +221,6 @@ public class DigitalWatermarkingGUI extends JFrame {
                     xorProcess.append(String.format("%02X", byteValue));
                     firstByte = false;
                 } else {
-                    int oldStepSize = stepSize;
                     stepSize = stepSize ^ byteValue;
                     xorProcess.append(String.format(" XOR %02X = %02X", byteValue, stepSize));
                 }
