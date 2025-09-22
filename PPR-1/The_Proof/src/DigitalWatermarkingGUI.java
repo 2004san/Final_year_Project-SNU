@@ -12,7 +12,6 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.zip.CRC32;
 import javax.imageio.ImageIO;
 
 public class DigitalWatermarkingGUI extends JFrame {
@@ -29,7 +28,7 @@ public class DigitalWatermarkingGUI extends JFrame {
     }
 
     private void initializeGUI() {
-        setTitle("Digital Watermarking Tool - LSB Embedding with SHA-256 & CRC");
+        setTitle("Digital Watermarking Tool - LSB Embedding with SHA-256 & XOR");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLayout(new BorderLayout());
 
@@ -58,16 +57,21 @@ public class DigitalWatermarkingGUI extends JFrame {
         gbc.anchor = GridBagConstraints.WEST;
 
         // Watermark input
-        gbc.gridx = 0; gbc.gridy = 0;
+        gbc.gridx = 0;
+        gbc.gridy = 0;
         panel.add(new JLabel("Watermark (max 50 chars):"), gbc);
-        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.gridx = 1;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
         watermarkField = new JTextField(30);
         panel.add(watermarkField, gbc);
 
         // Password input
-        gbc.gridx = 0; gbc.gridy = 1; gbc.fill = GridBagConstraints.NONE;
+        gbc.gridx = 0;
+        gbc.gridy = 1;
+        gbc.fill = GridBagConstraints.NONE;
         panel.add(new JLabel("Password:"), gbc);
-        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.gridx = 1;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
         passwordField = new JPasswordField(30);
         panel.add(passwordField, gbc);
 
@@ -155,6 +159,7 @@ public class DigitalWatermarkingGUI extends JFrame {
                 imageLabel.setText("");
 
                 embedButton.setEnabled(true);
+                extractButton.setEnabled(true); // Enable extract button for pre-watermarked images
                 statusLabel.setText("Status: Image loaded successfully");
                 log("=== IMAGE LOADED ===");
                 log("File: " + currentImageFile.getName());
@@ -201,16 +206,44 @@ public class DigitalWatermarkingGUI extends JFrame {
             String hashHex = bytesToHex(hashBytes);
             log("Step 2 - SHA-256 Hash of Password:");
             log("  Hex: " + hashHex);
-            log("  Bytes: " + java.util.Arrays.toString(hashBytes));
 
-            // Step 3: CRC-32 of hash
-            CRC32 crc32 = new CRC32();
-            crc32.update(hashBytes);
-            long crcValue = crc32.getValue();
-            int stepSize = (int)(crcValue & 0xFF); // Take lower 8 bits (0-255)
-            log("Step 3 - CRC-32 Calculation:");
-            log("  Full CRC-32: " + crcValue + " (0x" + Long.toHexString(crcValue) + ")");
-            log("  Lower 8 bits (Step Size): " + stepSize + " (0x" + Integer.toHexString(stepSize) + ")");
+            // Step 3: XOR all hex byte pairs sequentially
+            log("Step 3 - Sequential XOR Calculation:");
+            log("  Hex String: " + hashHex);
+
+            int stepSize = 0;
+            boolean firstByte = true;
+            StringBuilder xorProcess = new StringBuilder("  XOR Process: ");
+
+            for (int i = 0; i < hashHex.length(); i += 2) {
+                String hexPair = hashHex.substring(i, i + 2);
+                int byteValue = Integer.parseInt(hexPair, 16);
+
+                if (firstByte) {
+                    stepSize = byteValue;
+                    xorProcess.append(String.format("%02X", byteValue));
+                    firstByte = false;
+                } else {
+                    int oldStepSize = stepSize;
+                    stepSize = stepSize ^ byteValue;
+                    xorProcess.append(String.format(" XOR %02X = %02X", byteValue, stepSize));
+                }
+
+                // Add line break every 4 operations for readability
+                if ((i / 2 + 1) % 4 == 0 && i < hashHex.length() - 2) {
+                    log(xorProcess.toString());
+                    xorProcess = new StringBuilder("                   ");
+                }
+            }
+
+            // Handle case where XOR results in 0 (would cause infinite loop)
+            if (stepSize == 0) {
+                stepSize = 1;
+                log("  Warning: XOR result was 0, using step size 1 instead");
+            }
+
+            log(xorProcess.toString());
+            log("  Final XOR Result (Step Size): " + stepSize + " (0x" + String.format("%02X", stepSize) + ")");
 
             // Step 4: Convert to character array and show ASCII values
             char[] chars = delimitedWatermark.toCharArray();
@@ -225,10 +258,11 @@ public class DigitalWatermarkingGUI extends JFrame {
                         chars[i], ascii, binary, redBits, greenBits, blueBits));
             }
 
-            // Step 5: Calculate pixel positions
+            // Step 5: Calculate pixel positions - UPDATED TO START FROM stepSize
             List<Integer> pixelPositions = new ArrayList<>();
-            int currentPos = 0;
+            int currentPos = stepSize; // Start from stepSize pixel instead of 0
             log("Step 5 - Pixel Position Calculation:");
+            log("  Starting from pixel: " + stepSize);
             for (int i = 0; i < chars.length; i++) {
                 pixelPositions.add(currentPos);
                 int x = currentPos % 256;
@@ -267,9 +301,9 @@ public class DigitalWatermarkingGUI extends JFrame {
                 int blueBits = Integer.parseInt(binary.substring(6, 8), 2);
 
                 // Modify LSBs
-                int newR = (originalR & 0xF8) | redBits;   // Clear last 3 bits, set new ones
+                int newR = (originalR & 0xF8) | redBits; // Clear last 3 bits, set new ones
                 int newG = (originalG & 0xF8) | greenBits; // Clear last 3 bits, set new ones
-                int newB = (originalB & 0xFC) | blueBits;  // Clear last 2 bits, set new ones
+                int newB = (originalB & 0xFC) | blueBits; // Clear last 2 bits, set new ones
 
                 int newRGB = (newR << 16) | (newG << 8) | newB;
                 watermarkedImage.setRGB(x, y, newRGB);
@@ -290,7 +324,8 @@ public class DigitalWatermarkingGUI extends JFrame {
 
             JOptionPane.showMessageDialog(this, "Watermark embedded successfully!\n" +
                     "Total characters embedded: " + chars.length + "\n" +
-                    "Step size (CRC): " + stepSize, "Success", JOptionPane.INFORMATION_MESSAGE);
+                    "Step size (XOR): " + stepSize + "\n" +
+                    "Starting pixel: " + stepSize, "Success", JOptionPane.INFORMATION_MESSAGE);
 
         } catch (Exception ex) {
             JOptionPane.showMessageDialog(this, "Error embedding watermark: " + ex.getMessage(),
@@ -306,10 +341,14 @@ public class DigitalWatermarkingGUI extends JFrame {
             JOptionPane.showMessageDialog(this, "Please enter the password!");
             return;
         }
-        if (watermarkedImage == null) {
-            JOptionPane.showMessageDialog(this, "Please embed a watermark first!");
+        if (originalImage == null) {
+            JOptionPane.showMessageDialog(this, "Please load an image first!");
             return;
         }
+
+        // Use watermarkedImage if available (after embedding), otherwise use
+        // originalImage (loaded from disk)
+        BufferedImage imageToExtractFrom = (watermarkedImage != null) ? watermarkedImage : originalImage;
 
         try {
             log("=== WATERMARK EXTRACTION PROCESS ===");
@@ -321,27 +360,46 @@ public class DigitalWatermarkingGUI extends JFrame {
             log("Step 1 - SHA-256 Hash Verification:");
             log("  Hex: " + hashHex);
 
-            // Step 2: Generate same CRC step size
-            CRC32 crc32 = new CRC32();
-            crc32.update(hashBytes);
-            long crcValue = crc32.getValue();
-            int stepSize = (int)(crcValue & 0xFF);
-            log("Step 2 - CRC-32 Step Size: " + stepSize);
+            // Step 2: Generate same XOR step size
+            log("Step 2 - Sequential XOR Calculation:");
+            log("  Hex String: " + hashHex);
 
-            // Step 3: Extract characters
+            int stepSize = 0;
+            boolean firstByte = true;
+
+            for (int i = 0; i < hashHex.length(); i += 2) {
+                String hexPair = hashHex.substring(i, i + 2);
+                int byteValue = Integer.parseInt(hexPair, 16);
+
+                if (firstByte) {
+                    stepSize = byteValue;
+                    firstByte = false;
+                } else {
+                    stepSize = stepSize ^ byteValue;
+                }
+            }
+
+            if (stepSize == 0) {
+                stepSize = 1;
+            }
+
+            log("  Final XOR Step Size: " + stepSize);
+
+            // Step 3: Extract characters - UPDATED TO START FROM stepSize
             StringBuilder extractedText = new StringBuilder();
-            int currentPos = 0;
+            int currentPos = stepSize; // Start from stepSize pixel instead of 0
             boolean foundStart = false;
             int charIndex = 0;
 
             log("Step 3 - Character Extraction:");
+            log("  Starting extraction from pixel: " + stepSize);
 
             // Extract until we find the end marker or reach reasonable limit
             while (extractedText.length() < 100) { // Safety limit
                 int x = currentPos % 256;
                 int y = currentPos / 256;
 
-                int rgb = watermarkedImage.getRGB(x, y);
+                int rgb = imageToExtractFrom.getRGB(x, y);
                 int r = (rgb >> 16) & 0xFF;
                 int g = (rgb >> 8) & 0xFF;
                 int b = rgb & 0xFF;
@@ -416,7 +474,8 @@ public class DigitalWatermarkingGUI extends JFrame {
                     "Extracted Watermark: \"" + extractedWatermark + "\"\n" +
                     "Original Watermark: \"" + originalWatermark + "\"\n" +
                     "Match: " + (matches ? "YES ✓" : "NO ✗") + "\n\n" +
-                    "Step Size Used: " + stepSize;
+                    "Step Size Used: " + stepSize + "\n" +
+                    "Starting Pixel: " + stepSize;
 
             JOptionPane.showMessageDialog(this, message,
                     matches ? "Extraction Successful" : "Extraction Warning",
@@ -476,20 +535,34 @@ public class DigitalWatermarkingGUI extends JFrame {
 
     private String getImageTypeString(int type) {
         switch (type) {
-            case BufferedImage.TYPE_INT_RGB: return "INT_RGB";
-            case BufferedImage.TYPE_INT_ARGB: return "INT_ARGB";
-            case BufferedImage.TYPE_INT_ARGB_PRE: return "INT_ARGB_PRE";
-            case BufferedImage.TYPE_INT_BGR: return "INT_BGR";
-            case BufferedImage.TYPE_3BYTE_BGR: return "3BYTE_BGR";
-            case BufferedImage.TYPE_4BYTE_ABGR: return "4BYTE_ABGR";
-            case BufferedImage.TYPE_4BYTE_ABGR_PRE: return "4BYTE_ABGR_PRE";
-            case BufferedImage.TYPE_BYTE_GRAY: return "BYTE_GRAY";
-            case BufferedImage.TYPE_USHORT_GRAY: return "USHORT_GRAY";
-            case BufferedImage.TYPE_BYTE_BINARY: return "BYTE_BINARY";
-            case BufferedImage.TYPE_BYTE_INDEXED: return "BYTE_INDEXED";
-            case BufferedImage.TYPE_USHORT_565_RGB: return "USHORT_565_RGB";
-            case BufferedImage.TYPE_USHORT_555_RGB: return "USHORT_555_RGB";
-            default: return "CUSTOM";
+            case BufferedImage.TYPE_INT_RGB:
+                return "INT_RGB";
+            case BufferedImage.TYPE_INT_ARGB:
+                return "INT_ARGB";
+            case BufferedImage.TYPE_INT_ARGB_PRE:
+                return "INT_ARGB_PRE";
+            case BufferedImage.TYPE_INT_BGR:
+                return "INT_BGR";
+            case BufferedImage.TYPE_3BYTE_BGR:
+                return "3BYTE_BGR";
+            case BufferedImage.TYPE_4BYTE_ABGR:
+                return "4BYTE_ABGR";
+            case BufferedImage.TYPE_4BYTE_ABGR_PRE:
+                return "4BYTE_ABGR_PRE";
+            case BufferedImage.TYPE_BYTE_GRAY:
+                return "BYTE_GRAY";
+            case BufferedImage.TYPE_USHORT_GRAY:
+                return "USHORT_GRAY";
+            case BufferedImage.TYPE_BYTE_BINARY:
+                return "BYTE_BINARY";
+            case BufferedImage.TYPE_BYTE_INDEXED:
+                return "BYTE_INDEXED";
+            case BufferedImage.TYPE_USHORT_565_RGB:
+                return "USHORT_565_RGB";
+            case BufferedImage.TYPE_USHORT_555_RGB:
+                return "USHORT_555_RGB";
+            default:
+                return "CUSTOM";
         }
     }
 
